@@ -1,0 +1,114 @@
+#!/usr/bin/python
+
+import getpass
+import sys
+import os
+import argparse
+import json
+
+# Configuration
+
+server_url = ""
+username = ""
+password = ""
+
+# If the login data is passed as CLI parameters, it overrides cached data. If no data is in cache and no data is passed as parameters, this program falls back to an interactive mode.
+
+# Login
+
+parser = argparse.ArgumentParser(description='Wilma CLI-interface')
+parser.add_argument('--url', type=str, help='Wilma url, eg. https://wilma.espoo.fi. Ignored, if --password and --user are not both set. Not remembered.')
+parser.add_argument('--user', type=str, help='Username, eg. john.smith. Ignored, if --url and --password are not both set. Not remembered')
+parser.add_argument('--password', type=str, help='Password. Ignored, if --url and --user are not both set. Not remembered.')
+
+# Actions
+
+parser.add_argument('--overview', action="store_true")
+
+# Return all the available data from wilma.xxx.fi/overview (JSON)
+
+parser.add_argument('--schedule', action="store_true")
+
+# Pick a simplified version of the schedule fished from wilma.xxx.fi/overview (JSON)
+
+args = parser.parse_args()
+
+if args.url != None and args.user != None and args.password != None:
+
+    # If args come over CLI
+
+    server_url = args.url
+    username = args.user
+    password = args.password
+elif not os.path.isfile(os.path.expanduser("~/.wilmakeyring")):
+
+    # If we don't have cached login data
+
+    print("First login configuration (will be saved as plain text to a local file):")
+
+    if sys.version_info < (3, 0):
+        server_url = raw_input("Wilma server url: ")
+    else:
+        server_url = input("Wilma server url: ")
+
+    if sys.version_info < (3, 0):
+        username = raw_input("Username: ")
+    else:
+        username = input("Username: ")
+
+        password = getpass.getpass("Password: ")
+
+    return_code = os.system("./wilmalogin.sh "+server_url+" "+username+" "+password+" /tmp/.wilmacookie")
+
+    # If everything went smoothly, cache the login
+
+    if return_code == 0:
+        print("Login successful; Saved data to "+os.path.expanduser("~/.wilmakeyring")+".")
+        with open(os.path.expanduser("~/.wilmakeyring"), "w+") as f:
+            f.write(server_url + "\n")
+            f.write(username + "\n")
+            f.write(password + "\n")
+    else:
+        print("Login failed")
+else:
+
+    # If we have cached login data
+
+    with open(os.path.expanduser("~/.wilmakeyring"), "r") as f:
+        server_url = f.readline().strip("\n")
+        username = f.readline().strip("\n")
+        password = f.readline().strip("\n")
+
+# Refresh cookie
+
+    return_code = os.system("./wilmalogin.sh "+server_url+" "+username+" "+password+" /tmp/.wilmacookie")
+
+    if return_code == 0:
+
+        # If we need to fish stuff out of the overview
+
+        if args.overview or args.schedule:
+            os.system("./getOverview.sh " + server_url + " /tmp/.wilmacookie > /tmp/overview")
+            data = None
+            with open("/tmp/overview", "r") as f:
+                data = f.read()
+            if args.overview:
+
+                # If we just want the overview as-is
+
+                print(data)
+            elif args.schedule:
+
+                # If we want the schedule in a more meaningful format
+
+                schedule = json.loads(data)["Schedule"]
+                days = []
+                maximum = 1
+                for day in range(0, 5):
+                    dayData = []
+                    for lesson in schedule:
+                        if "Rooms" in lesson["Groups"][0].keys() and "Teachers" in lesson["Groups"][0].keys():
+                            if lesson["Day"] == day+1:
+                                dayData.append({"Start":lesson["Start"], "End":lesson["End"], "Code":lesson["Groups"][0]["ShortCaption"], "Caption":lesson["Groups"][0]["FullCaption"], "Teacher":{"Name":lesson["Groups"][0]["Teachers"][0]["LongCaption"], "Code":lesson["Groups"][0]["Teachers"][0]["Caption"]}, "Classroom":lesson["Groups"][0]["Rooms"][0]["LongCaption"]})
+                    days.append(dayData)
+                print(json.dumps(days))
