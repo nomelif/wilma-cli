@@ -5,6 +5,7 @@ import sys
 import os
 import argparse
 import json
+import datetime
 
 # Configuration
 
@@ -30,6 +31,10 @@ parser.add_argument('--overview', action="store_true")
 parser.add_argument('--schedule', action="store_true")
 
 # Pick a simplified version of the schedule fished from wilma.xxx.fi/overview (JSON)
+
+parser.add_argument('--homework', action="store_true")
+
+# Return the homework data as a JSON dictionary
 
 args = parser.parse_args()
 
@@ -87,7 +92,7 @@ else:
 
         # If we need to fish stuff out of the overview
 
-        if args.overview or args.schedule:
+        if args.overview or args.schedule or args.homework:
             os.system("./getOverview.sh " + server_url + " /tmp/.wilmacookie > /tmp/overview")
             data = None
             with open("/tmp/overview", "r") as f:
@@ -97,6 +102,23 @@ else:
                 # If we just want the overview as-is
 
                 print(data)
+
+            elif args.homework:
+
+                # If the homework data is requested
+
+                result = {}
+
+                for group in json.loads(data)["Groups"]:
+                    start_date = datetime.datetime.strptime(group["StartDate"], '%Y-%m-%d')
+                    end_date = datetime.datetime.strptime(group["EndDate"], '%Y-%m-%d')
+                    # Is the course still running?
+
+                    if start_date < datetime.datetime.now() and datetime.datetime.now() < end_date:
+                        result[group["CourseCode"]] = group["Homework"]
+                print(json.dumps(result, ensure_ascii=False))
+                        
+
             elif args.schedule:
 
                 # If we want the schedule in a more meaningful format
@@ -111,4 +133,4 @@ else:
                             if lesson["Day"] == day+1:
                                 dayData.append({"Start":lesson["Start"], "End":lesson["End"], "Code":lesson["Groups"][0]["ShortCaption"], "Caption":lesson["Groups"][0]["FullCaption"], "Teacher":{"Name":lesson["Groups"][0]["Teachers"][0]["LongCaption"], "Code":lesson["Groups"][0]["Teachers"][0]["Caption"]}, "Classroom":lesson["Groups"][0]["Rooms"][0]["LongCaption"]})
                     days.append(dayData)
-                print(json.dumps(days))
+                print(json.dumps(days, ensure_ascii=False))
